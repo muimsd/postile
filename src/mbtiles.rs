@@ -8,10 +8,41 @@ pub struct MbtilesStore {
 }
 
 impl MbtilesStore {
-    /// Open an existing MBTiles file
+    /// Open an existing MBTiles file, materializing the tiles view if needed
     pub fn open(path: &str) -> Result<Self> {
         let conn = Connection::open(path)
             .with_context(|| format!("Failed to open MBTiles at {}", path))?;
+
+        // Tippecanoe creates a `tiles` view over `map` + `images` tables.
+        // Materialize it into a real table so we can INSERT/UPDATE/DELETE.
+        let is_view: bool = conn
+            .query_row(
+                "SELECT type = 'view' FROM sqlite_master WHERE name = 'tiles'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+
+        if is_view {
+            info!("Materializing tiles view into a writable table");
+            conn.execute_batch(
+                "
+                CREATE TABLE tiles_real (
+                    zoom_level INTEGER NOT NULL,
+                    tile_column INTEGER NOT NULL,
+                    tile_row INTEGER NOT NULL,
+                    tile_data BLOB,
+                    UNIQUE (zoom_level, tile_column, tile_row)
+                );
+                INSERT INTO tiles_real SELECT * FROM tiles;
+                DROP VIEW tiles;
+                ALTER TABLE tiles_real RENAME TO tiles;
+                CREATE INDEX IF NOT EXISTS idx_tiles ON tiles (zoom_level, tile_column, tile_row);
+                ",
+            )?;
+            info!("Tiles view materialized successfully");
+        }
+
         Ok(Self { conn })
     }
 

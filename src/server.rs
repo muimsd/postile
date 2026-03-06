@@ -22,7 +22,7 @@ pub struct AppState {
 
 pub fn create_router(state: AppState) -> Router {
     Router::new()
-        .route("/tiles/{z}/{x}/{y}.pbf", get(get_tile))
+        .route("/tiles/:z/:x/:y_pbf", get(get_tile))
         .route("/tiles.json", get(tilejson))
         .route("/health", get(health))
         .route("/metadata", get(get_metadata))
@@ -32,10 +32,15 @@ pub fn create_router(state: AppState) -> Router {
 }
 
 async fn get_tile(
-    Path((z, x, y)): Path<(u8, u32, u32)>,
+    Path((z, x, y_pbf)): Path<(u8, u32, String)>,
     headers: HeaderMap,
     State(state): State<AppState>,
 ) -> impl IntoResponse {
+    let y: u32 = match y_pbf.strip_suffix(".pbf").unwrap_or(&y_pbf).parse() {
+        Ok(v) => v,
+        Err(_) => return StatusCode::BAD_REQUEST.into_response(),
+    };
+
     // Check in-memory cache first
     if let Some(cached) = state.cache.get(z, x, y).await {
         // ETag conditional response
