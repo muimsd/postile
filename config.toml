@@ -1,0 +1,29 @@
+[database]
+host = "localhost"
+port = 5432
+user = "postgres"
+password = "postgres"
+dbname = "geodata"
+pool_size = 4
+
+[server]
+host = "0.0.0.0"
+port = 3000
+
+[tiles]
+mbtiles_path = "./tiles.mbtiles"
+min_zoom = 0
+max_zoom = 14
+
+[cache]
+max_tiles = 10000
+debounce_ms = 200
+
+[[tiles.layers]]
+name = "buildings"
+schema = "public"
+table = "buildings"
+geometry_column = "geom"
+id_column = "id"
+srid = 4326
+properties = ["name", "type", "height"]
