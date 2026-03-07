@@ -1,0 +1,40 @@
+[database]
+host = "localhost"
+port = 5432
+user = "postgres"
+password = "postgres"
+dbname = "postile_example"
+pool_size = 4
+
+[tiles]
+mbtiles_path = "./examples/local-parks/parks.mbtiles"
+min_zoom = 0
+max_zoom = 14
+
+[updates]
+debounce_ms = 200
+worker_concurrency = 8
+
+[publish]
+backend = "local"
+destination = "./examples/local-parks/output/parks.mbtiles"
+publish_on_generate = true
+publish_on_update = false
+
+[[tiles.layers]]
+name = "parks"
+schema = "public"
+table = "parks"
+geometry_column = "geom"
+id_column = "id"
+srid = 4326
+properties = ["name", "type"]
+
+[[tiles.layers]]
+name = "trails"
+schema = "public"
+table = "trails"
+geometry_column = "geom"
+id_column = "id"
+srid = 4326
+properties = ["name", "difficulty", "length_km"]
