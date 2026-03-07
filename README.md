@@ -2,8 +2,6 @@
 
 A PostGIS vector tile pipeline for **MBTiles generation + incremental updates + storage publish**.
 
-`postile` no longer serves HTTP tiles directly. It builds and maintains an MBTiles file, then pushes that artifact to your target storage (local path, S3, or a custom command backend).
-
 ## Features
 
 - Full MBTiles generation from PostGIS via Tippecanoe
