@@ -1,0 +1,23 @@
+{
+    "version": "0.1.0",
+    "description": "PostGIS vector tile pipeline with incremental MBTiles updates via LISTEN/NOTIFY",
+    "homepage": "https://github.com/muimsd/postile",
+    "license": "MIT",
+    "architecture": {
+        "64bit": {
+            "url": "https://github.com/muimsd/postile/releases/download/v0.1.0/postile-x86_64-pc-windows-msvc.zip",
+            "hash": ""
+        }
+    },
+    "bin": "postile.exe",
+    "checkver": {
+        "github": "https://github.com/muimsd/postile"
+    },
+    "autoupdate": {
+        "architecture": {
+            "64bit": {
+                "url": "https://github.com/muimsd/postile/releases/download/v$version/postile-x86_64-pc-windows-msvc.zip"
+            }
+        }
+    }
+}

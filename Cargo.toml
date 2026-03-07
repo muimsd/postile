@@ -52,5 +52,21 @@ futures-util = "0.3"
 # CLI
 clap = { version = "4", features = ["derive"] }
 
+[package.metadata.deb]
+maintainer = "muimsd"
+depends = "$auto"
+section = "utils"
+priority = "optional"
+assets = [
+    ["target/release/postile", "usr/bin/", "755"],
+    ["README.md", "usr/share/doc/postile/README", "644"],
+]
+
+[package.metadata.generate-rpm]
+assets = [
+    { source = "target/release/postile", dest = "/usr/bin/postile", mode = "0755" },
+    { source = "README.md", dest = "/usr/share/doc/postile/README.md", mode = "0644" },
+]
+
 [build-dependencies]
 prost-build = "0.13"
