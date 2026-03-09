@@ -48,7 +48,8 @@ Full generation exports PostGIS layers as GeoJSON, pipes them through Tippecanoe
 ### Homebrew (macOS / Linux)
 
 ```bash
-brew install --formula https://raw.githubusercontent.com/muimsd/tilefeed/main/Formula/tilefeed.rb
+brew tap muimsd/tilefeed
+brew install tilefeed
 ```
 
 ### Scoop (Windows)
@@ -56,18 +57,6 @@ brew install --formula https://raw.githubusercontent.com/muimsd/tilefeed/main/Fo
 ```powershell
 scoop bucket add tilefeed https://github.com/muimsd/tilefeed
 scoop install tilefeed
-```
-
-### Chocolatey (Windows)
-
-```powershell
-choco install tilefeed
-```
-
-### winget (Windows)
-
-```powershell
-winget install muimsd.tilefeed
 ```
 
 ### Debian / Ubuntu (.deb)
