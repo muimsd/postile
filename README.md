@@ -3,50 +3,54 @@
 ![CI](https://github.com/muimsd/tilefeed/actions/workflows/ci.yml/badge.svg)
 ![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
 
-A PostGIS vector tile pipeline for **MBTiles generation + incremental updates + storage publish**.
+A PostGIS vector tile pipeline for **MBTiles generation + incremental updates + HTTP serving + storage publish**.
 
 ## Architecture
 
 ```
-PostGIS --> GeoJSON --> Tippecanoe --> MBTiles --+--> Local copy
-                                                +--> S3 upload
-                                                +--> Mapbox Studio
-LISTEN/NOTIFY --> Debounce --> MVT encode ------+--> Custom cmd
+PostGIS ──┬── Tippecanoe ──┐
+          ├── GDAL ────────┤── MBTiles ──┬── Built-in HTTP server
+          └── Native Rust ─┘             ├── Local copy
+                                         ├── S3 upload
+LISTEN/NOTIFY ── Debounce ── MVT encode ─├── Mapbox Studio
+                                         └── Custom command
 ```
 
-Full generation exports PostGIS layers as GeoJSON, pipes them through Tippecanoe to produce MBTiles, then publishes the artifact. Incremental updates listen for PostgreSQL notifications, debounce and deduplicate affected tiles, re-encode them as MVT protobuf directly, write them into the existing MBTiles file, and publish again.
+Full generation exports PostGIS layers through one of three backends (Tippecanoe, GDAL, or native Rust) to produce MBTiles. Incremental updates listen for PostgreSQL notifications, debounce and deduplicate affected tiles, re-encode them as MVT protobuf, and write them into the existing MBTiles file. The built-in HTTP server serves tiles directly from MBTiles with ETag caching and TileJSON metadata.
 
 ## Why tilefeed?
 
 | Tool | Approach | How tilefeed differs |
 |------|----------|---------------------|
 | **pg_tileserv** | Serves tiles on-the-fly from PostGIS, no caching or pre-generation. | tilefeed pre-generates tiles into MBTiles for predictable latency and CDN-friendly serving. |
-| **Martin** | Full-featured tile server with many backends, but more complex to deploy. | tilefeed is headless -- it produces an MBTiles artifact and gets out of the way. Bring your own serving layer (CDN, nginx, tileserver-gl). |
-| **t-rex** | Similar pre-generation approach but tightly coupled to its own built-in HTTP server. | tilefeed decouples generation from serving, so you can choose the best serving strategy for your infrastructure. |
-| **Tippecanoe cron** | Periodic full re-runs via cron or CI. Misses real-time updates and wastes work regenerating unchanged tiles. | tilefeed adds incremental updates via PostgreSQL LISTEN/NOTIFY, regenerating only the tiles affected by each change. |
+| **Martin** | Full-featured tile server with many backends, but more complex to deploy. | tilefeed is a focused pipeline that generates, serves, and incrementally updates MBTiles. |
+| **t-rex** | Similar pre-generation approach but tightly coupled to its own built-in HTTP server. | tilefeed decouples generation from serving — use the built-in server or bring your own. |
+| **Tippecanoe cron** | Periodic full re-runs via cron or CI. Misses real-time updates and wastes work. | tilefeed adds incremental updates via PostgreSQL LISTEN/NOTIFY, regenerating only affected tiles. |
 
 ## Features
 
-- Cross-platform: runs on Linux, macOS, and Windows
-- Full MBTiles generation from PostGIS via Tippecanoe with per-source fine-tuning
+- Cross-platform: Linux, macOS, and Windows
+- Three generation backends: [Tippecanoe](docs/tippecanoe.md), GDAL (ogr2ogr), and native Rust MVT encoder
 - Multiple sources: separate MBTiles outputs with independent layers and zoom ranges
-- Incremental tile regeneration using PostgreSQL LISTEN/NOTIFY
-- Debounced update batching and concurrent tile rebuild workers
-- Optional publish after full generation and/or incremental updates
-- Storage backends:
-  - Local file copy
-  - S3 upload via `aws s3 cp`
-  - Mapbox Studio upload via [Uploads API](https://docs.mapbox.com/api/maps/uploads/)
-  - Custom command runner (for any storage workflow)
+- Incremental tile regeneration using PostgreSQL LISTEN/NOTIFY with debounced batching
+- Built-in HTTP tile server with ETag caching, CORS, and [TileJSON 3.0.0](docs/serving.md)
+- [Derived geometry layers](docs/derived-layers.md): auto-generated label points and boundary lines from polygons
+- Geometry simplification (Douglas-Peucker) with per-zoom scaling
+- Per-zoom property filtering to reduce tile sizes at low zooms
+- Storage backends: local copy, S3, [Mapbox Studio](https://docs.mapbox.com/api/maps/uploads/), custom command
+- CLI tools: `inspect`, `validate`, `diff` for MBTiles diagnostics
+- Docker support with multi-stage build
+- Auto-reconnect on PostgreSQL connection loss with exponential backoff
+- WAL mode for concurrent MBTiles reads during writes
 
 ## Installation
 
 ### Prerequisites
 
 - PostgreSQL with [PostGIS](https://postgis.net/) extension
-- [Tippecanoe](https://github.com/felt/tippecanoe) for full generation
-- `aws` CLI only if using `publish.backend = "s3"` or `publish.backend = "mapbox"`
-- Mapbox secret token with `uploads:write` scope only if using `publish.backend = "mapbox"`
+- [Tippecanoe](https://github.com/felt/tippecanoe) — only if using `generation_backend = "tippecanoe"` (default)
+- [GDAL](https://gdal.org/) — only if using `generation_backend = "gdal"`
+- Neither needed for `generation_backend = "native"`
 
 ### Homebrew (macOS / Linux)
 
@@ -63,8 +67,6 @@ scoop install tilefeed
 ```
 
 ### Debian / Ubuntu (.deb)
-
-Download the `.deb` from [GitHub Releases](https://github.com/muimsd/tilefeed/releases):
 
 ```bash
 curl -LO https://github.com/muimsd/tilefeed/releases/latest/download/tilefeed_amd64.deb
@@ -84,30 +86,32 @@ sudo rpm -i tilefeed-x86_64.rpm
 cargo install tilefeed
 ```
 
-### From source (all platforms)
+### Docker
+
+```bash
+docker build -t tilefeed .
+docker run -v ./config.toml:/data/config.toml tilefeed serve
+```
+
+### From source
 
 Requires [Rust 1.70+](https://rustup.rs/) and `protoc` (protobuf compiler).
 
 ```bash
 # Install protoc
-# Linux (Debian/Ubuntu):
-sudo apt-get install -y protobuf-compiler
-# macOS:
-brew install protobuf
-# Windows:
-choco install protoc
+# Linux: sudo apt-get install -y protobuf-compiler
+# macOS: brew install protobuf
+# Windows: choco install protoc
 
-# Clone and build
 git clone https://github.com/muimsd/tilefeed.git
 cd tilefeed
 cargo build --release
-
-# Binary is at target/release/tilefeed (or tilefeed.exe on Windows)
+# Binary: target/release/tilefeed
 ```
 
-### From pre-built binaries
+### Pre-built binaries
 
-Download the latest binary for your platform from [GitHub Releases](https://github.com/muimsd/tilefeed/releases):
+Download from [GitHub Releases](https://github.com/muimsd/tilefeed/releases):
 
 | Platform | Binary |
 |----------|--------|
@@ -117,66 +121,26 @@ Download the latest binary for your platform from [GitHub Releases](https://gith
 | macOS Intel | `tilefeed-x86_64-apple-darwin` |
 | Windows x86_64 | `tilefeed-x86_64-pc-windows-msvc` |
 
-```bash
-# Example: download and install on Linux
-curl -L -o tilefeed https://github.com/muimsd/tilefeed/releases/latest/download/tilefeed-x86_64-unknown-linux-gnu
-chmod +x tilefeed
-sudo mv tilefeed /usr/local/bin/
-```
-
-### Install Tippecanoe
-
-Tippecanoe is required for the `generate` and `run` commands.
-
-```bash
-# macOS
-brew install tippecanoe
-
-# Linux (build from source)
-git clone https://github.com/felt/tippecanoe.git
-cd tippecanoe
-make -j && sudo make install
-
-# Windows
-# Use WSL or build with MSYS2. See https://github.com/felt/tippecanoe#windows
-```
-
 ## Usage
 
 ### Commands
 
 ```bash
-tilefeed generate              # full tile generation from PostGIS via Tippecanoe
-tilefeed watch                 # watch LISTEN/NOTIFY and apply incremental updates
-tilefeed run                   # generate then watch
-tilefeed -c other.toml watch   # use alternate config file
-tilefeed --help                # show all options
+tilefeed generate            # full tile generation from PostGIS
+tilefeed watch               # watch LISTEN/NOTIFY for incremental updates
+tilefeed run                 # generate then watch
+tilefeed serve               # generate, start HTTP server, and watch
+tilefeed inspect <file>      # inspect MBTiles metadata and statistics
+tilefeed validate            # validate config against the database
+tilefeed diff <a> <b>        # compare two MBTiles files
+tilefeed -c other.toml serve # use alternate config file
 ```
 
-If running from source instead of an installed binary, prefix with `cargo run --release --`:
-
-```bash
-cargo run --release -- generate
-cargo run --release -- -c myconfig.toml run
-```
-
-### Environment variables
-
-All config fields can be overridden with environment variables using the `TILES_` prefix and `__` as a section separator:
-
-```bash
-export TILES_DATABASE__HOST=db.example.com
-export TILES_DATABASE__PORT=5432
-export TILES_DATABASE__USER=myuser
-export TILES_DATABASE__PASSWORD=secret
-export TILES_DATABASE__DBNAME=geodata
-```
-
-You can also use a `.env` file in the project directory.
+If running from source: `cargo run --release -- serve`
 
 ## Quick Start
 
-### 1. Set up database + trigger function
+### 1. Set up database + triggers
 
 ```bash
 createdb geodata
@@ -197,39 +161,24 @@ The trigger layer name must match a `[[sources.layers]].name` in config.
 
 ### 2. Configure
 
-Each `[[sources]]` block defines an independent MBTiles output with its own layers and zoom range. Notifications are automatically routed to the correct source based on layer name.
-
 ```toml
-# Path to Tippecanoe binary (default: "tippecanoe", resolved via PATH)
-# tippecanoe_bin = "/usr/local/bin/tippecanoe"
-
 [database]
 host = "localhost"
 port = 5432
 user = "postgres"
 password = "postgres"
 dbname = "geodata"
-pool_size = 4
 
-[updates]
-debounce_ms = 200
-worker_concurrency = 8
+[serve]
+host = "0.0.0.0"
+port = 3000
 
-[publish]
-backend = "none" # none | local | s3 | mapbox | command
-publish_on_generate = true
-publish_on_update = true
-
-# Source 1: basemap with multiple layers
 [[sources]]
 name = "basemap"
 mbtiles_path = "./basemap.mbtiles"
 min_zoom = 0
 max_zoom = 14
-
-[sources.tippecanoe]
-drop_densest_as_needed = true
-no_tile_size_limit = true
+# generation_backend = "native"  # no external tools needed
 
 [[sources.layers]]
 name = "buildings"
@@ -238,229 +187,41 @@ geometry_column = "geom"
 id_column = "id"
 srid = 4326
 properties = ["name", "type", "height"]
+simplify_tolerance = 0.00001
+generate_label_points = true
 
-[[sources.layers]]
-name = "roads"
-table = "roads"
-geometry_column = "geom"
-id_column = "id"
-srid = 4326
-properties = ["name", "class"]
-
-# Source 2: points of interest at higher zoom
-[[sources]]
-name = "poi"
-mbtiles_path = "./poi.mbtiles"
-min_zoom = 10
-max_zoom = 16
-
-[[sources.layers]]
-name = "pois"
-table = "points_of_interest"
-geometry_column = "geom"
-id_column = "id"
-srid = 4326
-properties = ["name", "category"]
+[[sources.layers.property_rules]]
+below_zoom = 8
+exclude = ["height"]
 ```
 
-### Tippecanoe settings
-
-Each source can include a `[sources.tippecanoe]` section to fine-tune how Tippecanoe generates tiles. All settings are optional — sensible defaults are applied when omitted.
-
-```toml
-[[sources]]
-name = "basemap"
-mbtiles_path = "./basemap.mbtiles"
-min_zoom = 0
-max_zoom = 14
-
-[sources.tippecanoe]
-# Feature dropping strategies — control how features are pruned at lower zooms
-# to keep tile sizes manageable. Pick one or combine as needed.
-drop_densest_as_needed = true       # drop features in densest areas first
-# drop_fraction_as_needed = true    # drop a random fraction of features
-# drop_smallest_as_needed = true    # drop the smallest features first
-# coalesce_densest_as_needed = true # merge nearby features in dense areas
-# extend_zooms_if_still_dropping = true  # keep zooming if features still overflow
-
-# Drop rate control
-# drop_rate = 2.5     # rate features are dropped at lower zooms (default: 2.5)
-# base_zoom = 14      # base zoom for drop rate calculation
-
-# Simplification
-# simplification = 10.0          # simplification factor in tile coordinate units
-# detect_shared_borders = true   # simplify shared polygon borders identically
-# no_tiny_polygon_reduction = true  # don't collapse tiny polygons into pixels
-
-# Tile limits
-no_tile_size_limit = true        # no max tile size (default: true)
-no_feature_limit = true          # no max features per tile (default: 200,000)
-# no_tile_compression = true     # skip gzip compression of PBF output
-
-# Geometry detail
-# buffer = 5           # pixel buffer around each tile edge (default: 5)
-# full_detail = 12     # detail at max zoom, 2^n coordinate units (default: 12 = 4096)
-# low_detail = 12      # detail at lower zooms (default: 12)
-# minimum_detail = 7   # detail below which features are dropped
-
-# Escape hatch: pass any extra Tippecanoe flags not modeled above
-# extra_args = ["--cluster-distance=10", "--accumulate-attribute=count:sum"]
-```
-
-| Setting | Tippecanoe flag | Description |
-|---------|----------------|-------------|
-| `drop_densest_as_needed` | `--drop-densest-as-needed` | Drop features in the densest areas to stay under tile size limits |
-| `drop_fraction_as_needed` | `--drop-fraction-as-needed` | Drop a fraction of features at random |
-| `drop_smallest_as_needed` | `--drop-smallest-as-needed` | Drop the smallest features first |
-| `coalesce_densest_as_needed` | `--coalesce-densest-as-needed` | Merge nearby features in dense areas |
-| `extend_zooms_if_still_dropping` | `--extend-zooms-if-still-dropping` | Continue to higher zooms if features are still being dropped |
-| `drop_rate` | `--drop-rate` | Rate at which features are dropped at lower zooms (default: 2.5) |
-| `base_zoom` | `--base-zoom` | Base zoom level for drop rate calculation |
-| `simplification` | `--simplification` | Simplification factor in tile coordinate units |
-| `detect_shared_borders` | `--detect-shared-borders` | Detect and simplify shared polygon borders identically |
-| `no_tiny_polygon_reduction` | `--no-tiny-polygon-reduction` | Don't collapse very small polygons into single pixels |
-| `no_feature_limit` | `--no-feature-limit` | Remove the default 200,000 feature-per-tile limit |
-| `no_tile_size_limit` | `--no-tile-size-limit` | Remove the default 500KB tile size limit (default: true) |
-| `no_tile_compression` | `--no-tile-compression` | Don't gzip-compress PBF tile data |
-| `buffer` | `--buffer` | Pixel buffer around each tile edge |
-| `full_detail` | `--full-detail` | Detail level at max zoom (2^n coordinate units) |
-| `low_detail` | `--low-detail` | Detail level at lower zoom levels |
-| `minimum_detail` | `--minimum-detail` | Minimum detail level below which features are dropped |
-| `extra_args` | *(any)* | Array of additional raw Tippecanoe arguments |
-
-The `extra_args` field is an escape hatch for any Tippecanoe option not explicitly modeled. Each array element is passed as a separate argument to the Tippecanoe command.
-
-Backend-specific publish fields:
-
-- `local`: set `publish.destination` to a file path.
-- `s3`: set `publish.destination = "s3://bucket/path/tiles.mbtiles"`.
-- `mapbox`: set `publish.mapbox_tileset_id = "username.tileset-name"` and `publish.mapbox_token` (secret token with `uploads:write` scope). Requires `aws` CLI.
-- `command`: set `publish.command`, and use env vars:
-  - `TILEFEED_MBTILES_PATH`
-  - `TILEFEED_PUBLISH_REASON`
+See [full configuration reference](docs/configuration.md) for all options.
 
 ### 3. Run
 
 ```bash
-# Full rebuild all sources
-tilefeed generate
+# Full rebuild + serve + watch
+tilefeed serve
 
-# Incremental watcher only (requires existing MBTiles)
-tilefeed watch
-
-# Full rebuild, then keep watching updates
-tilefeed run
+# Or step by step:
+tilefeed generate   # build MBTiles
+tilefeed watch      # incremental updates only
 ```
 
-## Serving tiles
+## Documentation
 
-tilefeed does not include an HTTP server. It produces MBTiles files and optionally publishes them to a storage backend. To serve tiles to clients, pair it with one of:
-
-- **CDN (CloudFront, Cloudflare R2, etc.)** -- upload the MBTiles to object storage via the S3 or command backend and serve tiles through a CDN edge layer.
-- **Martin** -- point [Martin](https://github.com/maplibre/martin) at the MBTiles file for a production-grade tile server with automatic hot-reload.
-- **tileserver-gl** -- use [tileserver-gl](https://github.com/maptiler/tileserver-gl) to serve raster and vector tiles from MBTiles with built-in style rendering.
-- **nginx with mbtiles module** -- for minimal setups, use an nginx module or a lightweight proxy that reads tiles directly from the SQLite MBTiles file.
-
-This separation lets you choose the serving strategy that fits your infrastructure without being locked into a specific server runtime.
-
-## Using OGR_FDW for external data sources
-
-[OGR_FDW](https://github.com/pramsey/pgsql-ogr-fdw) is a PostgreSQL Foreign Data Wrapper that exposes any OGR-supported data source as a regular table. This lets tilefeed generate vector tiles from Esri FeatureServer, SQL Server, GeoPackage, shapefiles, WFS, and dozens of other formats -- without any code changes.
-
-### How it works
-
-```
-Esri FeatureServer ──┐
-SQL Server (via TDS) ─┤── OGR_FDW ── PostgreSQL foreign table ── tilefeed ── MBTiles
-GeoPackage / SHP ─────┘
-```
-
-OGR_FDW creates foreign tables that look and query like regular PostGIS tables. Since tilefeed reads from PostGIS, it works transparently against these tables.
-
-### Setup
-
-```sql
--- Install the extension
-CREATE EXTENSION ogr_fdw;
-
--- Example 1: Esri FeatureServer
-CREATE SERVER esri_server
-    FOREIGN DATA WRAPPER ogr_fdw
-    OPTIONS (
-        datasource 'https://services.arcgis.com/ORG_ID/arcgis/rest/services/MyService/FeatureServer/0',
-        format 'ESRIJSON'
-    );
-
-IMPORT FOREIGN SCHEMA ogr_all
-    FROM SERVER esri_server
-    INTO public;
-
--- Example 2: SQL Server via ODBC
-CREATE SERVER mssql_server
-    FOREIGN DATA WRAPPER ogr_fdw
-    OPTIONS (
-        datasource 'MSSQL:server=db.example.com;database=geodata;uid=user;pwd=pass',
-        format 'MSSQLSpatial'
-    );
-
-IMPORT FOREIGN SCHEMA ogr_all
-    FROM SERVER mssql_server
-    INTO public;
-
--- Example 3: GeoPackage file
-CREATE SERVER gpkg_server
-    FOREIGN DATA WRAPPER ogr_fdw
-    OPTIONS (
-        datasource '/data/parcels.gpkg',
-        format 'GPKG'
-    );
-
-IMPORT FOREIGN SCHEMA ogr_all
-    FROM SERVER gpkg_server
-    INTO public;
-```
-
-Use `ogr_fdw_info` to discover available layers and columns before importing:
-
-```bash
-ogr_fdw_info -s 'https://services.arcgis.com/.../FeatureServer/0'
-```
-
-### tilefeed config
-
-Point tilefeed layers at the foreign tables just like any other table:
-
-```toml
-[[sources]]
-name = "external"
-mbtiles_path = "./external.mbtiles"
-min_zoom = 0
-max_zoom = 14
-
-[[sources.layers]]
-name = "parcels"
-table = "parcels"          # the foreign table name
-geometry_column = "geom"
-id_column = "ogc_fid"
-srid = 4326
-properties = ["owner", "area_sqm", "land_use"]
-```
-
-### Considerations
-
-- **No LISTEN/NOTIFY for foreign tables.** Changes happen on the remote side, so PostgreSQL triggers won't fire. Use `tilefeed generate` on a schedule (cron) instead of `tilefeed watch` for these sources.
-- **Performance depends on the remote source.** OGR_FDW can push down simple filters, but complex spatial queries may pull entire datasets over the network. For large remote sources, consider materializing the foreign table periodically:
-  ```sql
-  CREATE MATERIALIZED VIEW parcels_local AS SELECT * FROM parcels;
-  REFRESH MATERIALIZED VIEW CONCURRENTLY parcels_local;
-  ```
-  Then point tilefeed at the materialized view and attach a trigger to refresh + notify.
-- **Mixed sources work well.** You can have some sources backed by local PostGIS tables (with LISTEN/NOTIFY for real-time updates) and others backed by OGR_FDW foreign tables (with scheduled `generate` runs). Each `[[sources]]` block operates independently.
+| Doc | Description |
+|-----|-------------|
+| [Configuration Reference](docs/configuration.md) | All config fields, sections, and generation backends |
+| [Tippecanoe Settings](docs/tippecanoe.md) | Fine-tuning Tippecanoe tile generation |
+| [Tile Serving](docs/serving.md) | Built-in HTTP server and external alternatives |
+| [Derived Layers](docs/derived-layers.md) | Auto-generated label points and boundary lines |
+| [OGR_FDW Integration](docs/ogr-fdw.md) | Using external data sources via PostgreSQL FDW |
 
 ## Incremental Flow
 
 1. PostgreSQL trigger emits `pg_notify('tile_update', ...)`
-2. `tilefeed` debounces notifications into a batch
+2. tilefeed debounces notifications into a batch
 3. Events are routed to the correct source based on layer name
 4. Affected tiles are derived from new/old feature bounds
 5. Tiles are regenerated and written into the source's MBTiles
