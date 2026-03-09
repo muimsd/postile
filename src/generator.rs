@@ -13,14 +13,52 @@ pub async fn generate_source(
     source: &SourceConfig,
     reader: &PostgisReader,
     tippecanoe_bin: Option<&str>,
+    ogr2ogr_bin: Option<&str>,
 ) -> Result<()> {
     match source.generation_backend {
         GenerationBackend::Tippecanoe => {
             generate_with_tippecanoe(source, reader, tippecanoe_bin).await
         }
-        GenerationBackend::Gdal => generate_with_gdal(source, reader).await,
+        GenerationBackend::Gdal => generate_with_gdal(source, reader, ogr2ogr_bin).await,
         GenerationBackend::Native => generate_with_native(source, reader).await,
     }
+}
+
+/// Check if a required external binary is available on PATH or at the given path
+pub fn check_binary(name: &str, custom_path: Option<&str>) -> Result<()> {
+    let bin = custom_path.unwrap_or(name);
+    match std::process::Command::new(bin)
+        .arg("--version")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+    {
+        Ok(status) if status.success() => Ok(()),
+        Ok(_) => Ok(()), // some tools return non-zero for --version but still exist
+        Err(_) => bail!("'{}' not found. Is {} installed and in PATH?", bin, name),
+    }
+}
+
+/// Validate that all required external tools are available for the configured backends
+pub fn check_required_tools(
+    sources: &[SourceConfig],
+    tippecanoe_bin: Option<&str>,
+    ogr2ogr_bin: Option<&str>,
+) -> Result<()> {
+    let needs_tippecanoe = sources
+        .iter()
+        .any(|s| matches!(s.generation_backend, GenerationBackend::Tippecanoe));
+    let needs_gdal = sources
+        .iter()
+        .any(|s| matches!(s.generation_backend, GenerationBackend::Gdal));
+
+    if needs_tippecanoe {
+        check_binary("tippecanoe", tippecanoe_bin)?;
+    }
+    if needs_gdal {
+        check_binary("ogr2ogr", ogr2ogr_bin)?;
+    }
+    Ok(())
 }
 
 /// Export all layers (including derived) to GeoJSON temp files.
@@ -192,7 +230,11 @@ async fn generate_with_tippecanoe(
 // GDAL (ogr2ogr) backend
 // ---------------------------------------------------------------------------
 
-async fn generate_with_gdal(source: &SourceConfig, reader: &PostgisReader) -> Result<()> {
+async fn generate_with_gdal(
+    source: &SourceConfig,
+    reader: &PostgisReader,
+    ogr2ogr_bin: Option<&str>,
+) -> Result<()> {
     let temp_dir = std::env::temp_dir().join(format!("tilefeed-export-{}", source.name));
     tokio::fs::create_dir_all(&temp_dir).await?;
 
@@ -206,7 +248,8 @@ async fn generate_with_gdal(source: &SourceConfig, reader: &PostgisReader) -> Re
     let _ = tokio::fs::remove_file(mbtiles_path).await;
 
     for (i, (layer_name, geojson_path)) in geojson_files.iter().enumerate() {
-        let mut cmd = tokio::process::Command::new("ogr2ogr");
+        let bin = ogr2ogr_bin.unwrap_or("ogr2ogr");
+        let mut cmd = tokio::process::Command::new(bin);
 
         if i == 0 {
             // First layer: create the MBTiles
@@ -234,10 +277,10 @@ async fn generate_with_gdal(source: &SourceConfig, reader: &PostgisReader) -> Re
             layer_name, source.name, cmd
         );
 
-        let output = cmd
-            .output()
-            .await
-            .context("Failed to run 'ogr2ogr'. Is GDAL installed and in PATH?")?;
+        let output = cmd.output().await.context(format!(
+            "Failed to run '{}'. Is GDAL installed and in PATH?",
+            bin
+        ))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -370,4 +413,70 @@ async fn generate_with_native(source: &SourceConfig, reader: &PostgisReader) -> 
     );
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::*;
+
+    fn sample_source(backend: GenerationBackend) -> SourceConfig {
+        SourceConfig {
+            name: "test".to_string(),
+            mbtiles_path: "/tmp/test.mbtiles".to_string(),
+            min_zoom: 0,
+            max_zoom: 4,
+            generation_backend: backend,
+            layers: vec![],
+            tippecanoe: TippecanoeConfig::default(),
+        }
+    }
+
+    #[test]
+    fn test_check_binary_found() {
+        assert!(check_binary("echo", None).is_ok());
+    }
+
+    #[test]
+    fn test_check_binary_custom_path() {
+        assert!(check_binary("echo", Some("/bin/echo")).is_ok());
+    }
+
+    #[test]
+    fn test_check_binary_not_found() {
+        let result = check_binary("nonexistent_tool_xyz_12345", None);
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("nonexistent_tool_xyz_12345"));
+    }
+
+    #[test]
+    fn test_check_required_tools_native_needs_nothing() {
+        let sources = vec![sample_source(GenerationBackend::Native)];
+        assert!(check_required_tools(&sources, None, None).is_ok());
+    }
+
+    #[test]
+    fn test_check_required_tools_tippecanoe_missing() {
+        let sources = vec![sample_source(GenerationBackend::Tippecanoe)];
+        let result = check_required_tools(&sources, Some("nonexistent_xyz_12345"), None);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_check_required_tools_gdal_missing() {
+        let sources = vec![sample_source(GenerationBackend::Gdal)];
+        let result = check_required_tools(&sources, None, Some("nonexistent_xyz_12345"));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_check_required_tools_skips_unneeded() {
+        // Native backend should not check for tippecanoe or ogr2ogr
+        let sources = vec![sample_source(GenerationBackend::Native)];
+        assert!(
+            check_required_tools(&sources, Some("nonexistent_xyz"), Some("nonexistent_xyz"))
+                .is_ok()
+        );
+    }
 }

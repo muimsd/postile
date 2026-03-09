@@ -10,6 +10,8 @@ pub struct AppConfig {
     pub publish: PublishConfig,
     /// Path to the Tippecanoe binary (default: "tippecanoe", resolved via PATH)
     pub tippecanoe_bin: Option<String>,
+    /// Path to the ogr2ogr binary (default: "ogr2ogr", resolved via PATH)
+    pub ogr2ogr_bin: Option<String>,
     #[serde(default)]
     pub serve: ServeConfig,
 }
@@ -353,6 +355,7 @@ mod tests {
             updates: UpdateConfig::default(),
             publish: PublishConfig::default(),
             tippecanoe_bin: None,
+            ogr2ogr_bin: None,
             serve: ServeConfig::default(),
         }
     }

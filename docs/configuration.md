@@ -20,6 +20,9 @@ You can also use a `.env` file in the project directory.
 # Path to Tippecanoe binary (default: "tippecanoe", resolved via PATH)
 # tippecanoe_bin = "/usr/local/bin/tippecanoe"
 
+# Path to ogr2ogr binary (default: "ogr2ogr", resolved via PATH)
+# ogr2ogr_bin = "/usr/local/bin/ogr2ogr"
+
 [database]
 host = "localhost"
 port = 5432

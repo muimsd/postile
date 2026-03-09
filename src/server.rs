@@ -230,6 +230,7 @@ mod tests {
             updates: UpdateConfig::default(),
             publish: PublishConfig::default(),
             tippecanoe_bin: None,
+            ogr2ogr_bin: None,
             serve: ServeConfig::default(),
         }
     }

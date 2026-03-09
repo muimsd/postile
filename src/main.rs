@@ -91,6 +91,13 @@ async fn main() -> Result<()> {
             let publisher =
                 storage::StoragePublisher::from_config(&app_config.publish)?.map(Arc::new);
 
+            // Check required external tools before starting
+            generator::check_required_tools(
+                &app_config.sources,
+                app_config.tippecanoe_bin.as_deref(),
+                app_config.ogr2ogr_bin.as_deref(),
+            )?;
+
             match cli.command {
                 Commands::Generate => {
                     let reader = postgis::PostgisReader::connect(&app_config.database).await?;
@@ -135,7 +142,13 @@ async fn generate_all_sources(
     reader: &postgis::PostgisReader,
 ) -> Result<()> {
     for source in &config.sources {
-        generator::generate_source(source, reader, config.tippecanoe_bin.as_deref()).await?;
+        generator::generate_source(
+            source,
+            reader,
+            config.tippecanoe_bin.as_deref(),
+            config.ogr2ogr_bin.as_deref(),
+        )
+        .await?;
     }
     Ok(())
 }
