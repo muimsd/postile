@@ -4,7 +4,7 @@ use serde_json::Value as JsonValue;
 use tokio_postgres::NoTls;
 use tracing::info;
 
-use crate::config::{DatabaseConfig, LayerConfig};
+use crate::config::{DatabaseConfig, DerivedGeomType, LayerConfig};
 
 #[derive(Clone)]
 pub struct PostgisReader {
@@ -236,6 +236,188 @@ impl PostgisReader {
                 properties,
                 bounds: bounds.clone(),
                 layer_name: layer.name.clone(),
+            });
+        }
+
+        Ok(features)
+    }
+
+    /// Export a derived geometry layer (labels/boundary) as GeoJSON FeatureCollection
+    pub async fn export_derived_layer_geojson(
+        &self,
+        layer: &LayerConfig,
+        derived_type: DerivedGeomType,
+        output_path: &str,
+    ) -> Result<()> {
+        let client = self.pool.get().await?;
+        let schema = layer.schema.as_deref().unwrap_or("public");
+        let geom_col = layer.geometry_column.as_deref().unwrap_or("geom");
+        let id_col = layer.id_column.as_deref().unwrap_or("id");
+
+        let props_select = match &layer.properties {
+            Some(props) => props
+                .iter()
+                .map(|p| format!("\"{}\"", p))
+                .collect::<Vec<_>>()
+                .join(", "),
+            None => "*".to_string(),
+        };
+
+        let geom_transform = match derived_type {
+            DerivedGeomType::LabelPoint => {
+                format!("ST_PointOnSurface(ST_Transform(\"{geom_col}\", 4326))")
+            }
+            DerivedGeomType::BoundaryLine => {
+                format!("ST_Boundary(ST_Transform(\"{geom_col}\", 4326))")
+            }
+        };
+
+        let mut query = format!(
+            r#"SELECT
+                "{id_col}" as feature_id,
+                ST_AsGeoJSON({geom_transform})::json as geometry,
+                row_to_json((SELECT r FROM (SELECT {props_select}) r)) as properties
+            FROM "{schema}"."{table}"
+            WHERE "{geom_col}" IS NOT NULL"#,
+            table = layer.table,
+        );
+
+        if let Some(ref filter) = layer.filter {
+            query.push_str(&format!(" AND ({})", filter));
+        }
+
+        let rows = client
+            .query(&query, &[])
+            .await
+            .with_context(|| {
+                format!(
+                    "Failed to query derived {:?} layer {}.{}",
+                    derived_type, schema, layer.table
+                )
+            })?;
+
+        let mut features = Vec::with_capacity(rows.len());
+        for row in &rows {
+            let feature_id: i64 = row
+                .try_get::<_, i64>("feature_id")
+                .or_else(|_| row.try_get::<_, i32>("feature_id").map(|v| v as i64))
+                .unwrap_or(0);
+            let geometry: JsonValue = row.get("geometry");
+            let properties: JsonValue = row.get("properties");
+
+            features.push(serde_json::json!({
+                "type": "Feature",
+                "id": feature_id,
+                "geometry": geometry,
+                "properties": properties,
+            }));
+        }
+
+        let feature_collection = serde_json::json!({
+            "type": "FeatureCollection",
+            "features": features,
+        });
+
+        tokio::fs::write(output_path, serde_json::to_string(&feature_collection)?)
+            .await
+            .with_context(|| format!("Failed to write derived GeoJSON to {}", output_path))?;
+
+        let type_name = match derived_type {
+            DerivedGeomType::LabelPoint => "label points",
+            DerivedGeomType::BoundaryLine => "boundary lines",
+        };
+        info!(
+            "Exported {} {} from {}.{} to {}",
+            features.len(),
+            type_name,
+            schema,
+            layer.table,
+            output_path
+        );
+
+        Ok(())
+    }
+
+    /// Get derived geometry features (labels/boundary) intersecting a tile bounding box
+    pub async fn get_derived_features_in_bounds(
+        &self,
+        layer: &LayerConfig,
+        derived_type: DerivedGeomType,
+        bounds: &Bounds,
+    ) -> Result<Vec<FeatureData>> {
+        let client = self.pool.get().await?;
+        let schema = layer.schema.as_deref().unwrap_or("public");
+        let geom_col = layer.geometry_column.as_deref().unwrap_or("geom");
+        let id_col = layer.id_column.as_deref().unwrap_or("id");
+
+        let props_select = match &layer.properties {
+            Some(props) => props
+                .iter()
+                .map(|p| format!("\"{}\"", p))
+                .collect::<Vec<_>>()
+                .join(", "),
+            None => "*".to_string(),
+        };
+
+        let geom_transform = match derived_type {
+            DerivedGeomType::LabelPoint => {
+                format!("ST_PointOnSurface(ST_Transform(\"{geom_col}\", 4326))")
+            }
+            DerivedGeomType::BoundaryLine => {
+                format!("ST_Boundary(ST_Transform(\"{geom_col}\", 4326))")
+            }
+        };
+
+        let mut query = format!(
+            r#"SELECT
+                "{id_col}" as feature_id,
+                ST_AsGeoJSON({geom_transform})::json as geometry,
+                row_to_json((SELECT r FROM (SELECT {props_select}) r)) as properties
+            FROM "{schema}"."{table}"
+            WHERE "{geom_col}" IS NOT NULL
+              AND ST_Intersects(
+                  ST_Transform("{geom_col}", 4326),
+                  ST_MakeEnvelope($1, $2, $3, $4, 4326)
+              )"#,
+            table = layer.table,
+        );
+
+        if let Some(ref filter) = layer.filter {
+            query.push_str(&format!(" AND ({})", filter));
+        }
+
+        let rows = client
+            .query(
+                &query,
+                &[
+                    &bounds.min_lon,
+                    &bounds.min_lat,
+                    &bounds.max_lon,
+                    &bounds.max_lat,
+                ],
+            )
+            .await?;
+
+        let derived_layer_name = match derived_type {
+            DerivedGeomType::LabelPoint => format!("{}_labels", layer.name),
+            DerivedGeomType::BoundaryLine => format!("{}_boundary", layer.name),
+        };
+
+        let mut features = Vec::with_capacity(rows.len());
+        for row in &rows {
+            let feature_id: i64 = row
+                .try_get::<_, i64>("feature_id")
+                .or_else(|_| row.try_get::<_, i32>("feature_id").map(|v| v as i64))
+                .unwrap_or(0);
+            let geometry: JsonValue = row.get("geometry");
+            let properties: JsonValue = row.get("properties");
+
+            features.push(FeatureData {
+                id: feature_id,
+                geometry,
+                properties,
+                bounds: bounds.clone(),
+                layer_name: derived_layer_name.clone(),
             });
         }
 

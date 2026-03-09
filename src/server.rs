@@ -138,18 +138,31 @@ async fn serve_tilejson(
     let host = state.config.serve.host.as_deref().unwrap_or("127.0.0.1");
     let port = state.config.serve.port.unwrap_or(3000);
 
-    let layers: Vec<serde_json::Value> = source_config
-        .layers
-        .iter()
-        .map(|l| {
-            serde_json::json!({
-                "id": l.name,
-                "fields": l.properties.as_ref().map(|p| {
-                    p.iter().map(|k| (k.clone(), "".to_string())).collect::<HashMap<String, String>>()
-                }).unwrap_or_default(),
-            })
-        })
-        .collect();
+    let mut layers: Vec<serde_json::Value> = Vec::new();
+    for l in &source_config.layers {
+        let fields = l.properties.as_ref().map(|p| {
+            p.iter().map(|k| (k.clone(), "".to_string())).collect::<HashMap<String, String>>()
+        }).unwrap_or_default();
+
+        layers.push(serde_json::json!({
+            "id": l.name,
+            "fields": fields,
+        }));
+
+        // Include derived layers in TileJSON
+        if l.generate_label_points {
+            layers.push(serde_json::json!({
+                "id": format!("{}_labels", l.name),
+                "fields": fields,
+            }));
+        }
+        if l.generate_boundary_lines {
+            layers.push(serde_json::json!({
+                "id": format!("{}_boundary", l.name),
+                "fields": fields,
+            }));
+        }
+    }
 
     let tilejson = serde_json::json!({
         "tilejson": "3.0.0",

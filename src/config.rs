@@ -24,12 +24,27 @@ pub struct DatabaseConfig {
     pub pool_size: Option<usize>,
 }
 
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum GenerationBackend {
+    /// Use Tippecanoe (default, requires tippecanoe binary)
+    #[default]
+    Tippecanoe,
+    /// Use GDAL ogr2ogr (requires ogr2ogr binary)
+    Gdal,
+    /// Use the built-in native Rust MVT encoder (no external dependencies)
+    Native,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct SourceConfig {
     pub name: String,
     pub mbtiles_path: String,
     pub min_zoom: u8,
     pub max_zoom: u8,
+    /// Tile generation backend: "tippecanoe" (default), "gdal", or "native"
+    #[serde(default)]
+    pub generation_backend: GenerationBackend,
     pub layers: Vec<LayerConfig>,
     #[serde(default)]
     pub tippecanoe: TippecanoeConfig,
@@ -103,6 +118,16 @@ pub struct LayerConfig {
     /// Properties to exclude at zoom levels below this threshold
     /// e.g. `{ below_zoom = 10, exclude = ["description", "metadata"] }`
     pub property_rules: Option<Vec<PropertyRule>>,
+    /// Automatically generate a centroid point layer for labels.
+    /// Creates a companion layer named `{name}_labels` with Point geometry
+    /// derived from ST_PointOnSurface of the polygon.
+    #[serde(default)]
+    pub generate_label_points: bool,
+    /// Automatically generate a boundary polyline layer.
+    /// Creates a companion layer named `{name}_boundary` with LineString geometry
+    /// derived from ST_Boundary of the polygon.
+    #[serde(default)]
+    pub generate_boundary_lines: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -215,11 +240,15 @@ impl DatabaseConfig {
 }
 
 impl AppConfig {
-    /// Find which source owns a given layer name
+    /// Find which source owns a given layer name (including derived layers like _labels, _boundary)
     pub fn find_source_for_layer(&self, layer_name: &str) -> Option<&SourceConfig> {
-        self.sources
-            .iter()
-            .find(|s| s.layers.iter().any(|l| l.name == layer_name))
+        self.sources.iter().find(|s| {
+            s.layers.iter().any(|l| {
+                l.name == layer_name
+                    || (l.generate_label_points && format!("{}_labels", l.name) == layer_name)
+                    || (l.generate_boundary_lines && format!("{}_boundary", l.name) == layer_name)
+            })
+        })
     }
 }
 
@@ -228,6 +257,38 @@ impl SourceConfig {
     pub fn find_layer(&self, name: &str) -> Option<&LayerConfig> {
         self.layers.iter().find(|l| l.name == name)
     }
+
+    /// Find the parent layer that owns a derived layer (e.g. "parks" for "parks_labels")
+    pub fn find_parent_layer_for_derived(&self, derived_name: &str) -> Option<&LayerConfig> {
+        self.layers.iter().find(|l| {
+            (l.generate_label_points && format!("{}_labels", l.name) == derived_name)
+                || (l.generate_boundary_lines && format!("{}_boundary", l.name) == derived_name)
+        })
+    }
+
+    /// Get all effective layer names including derived layers
+    pub fn all_layer_names(&self) -> Vec<String> {
+        let mut names = Vec::new();
+        for layer in &self.layers {
+            names.push(layer.name.clone());
+            if layer.generate_label_points {
+                names.push(format!("{}_labels", layer.name));
+            }
+            if layer.generate_boundary_lines {
+                names.push(format!("{}_boundary", layer.name));
+            }
+        }
+        names
+    }
+}
+
+/// Type of derived geometry to generate from a polygon layer
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DerivedGeomType {
+    /// ST_PointOnSurface — centroid point for label placement
+    LabelPoint,
+    /// ST_Boundary — polygon boundary as linestring
+    BoundaryLine,
 }
 
 pub fn load_config(path: &str) -> anyhow::Result<AppConfig> {
@@ -257,6 +318,8 @@ mod tests {
             geometry_columns: None,
             simplify_tolerance: None,
             property_rules: None,
+            generate_label_points: false,
+            generate_boundary_lines: false,
         }
     }
 
@@ -266,6 +329,7 @@ mod tests {
             mbtiles_path: format!("/tmp/{}.mbtiles", name),
             min_zoom: 0,
             max_zoom: 14,
+            generation_backend: GenerationBackend::default(),
             layers: layer_names.iter().map(|l| sample_layer(l)).collect(),
             tippecanoe: TippecanoeConfig::default(),
         }

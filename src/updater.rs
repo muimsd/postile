@@ -7,7 +7,7 @@ use tokio::time::{Duration, Instant};
 use tokio_postgres::{AsyncMessage, NoTls};
 use tracing::{error, info, warn};
 
-use crate::config::AppConfig;
+use crate::config::{AppConfig, DerivedGeomType};
 use crate::mbtiles::MbtilesStore;
 use crate::mvt;
 use crate::postgis::{Bounds, PostgisReader};
@@ -351,11 +351,34 @@ async fn regenerate_single_tile(
     let mut layer_configs: HashMap<String, &crate::config::LayerConfig> = HashMap::new();
 
     for layer in &source.layers {
+        // Original polygon/geometry layer
         let features = reader.get_features_in_bounds(layer, &bounds).await?;
         if !features.is_empty() {
             features_by_layer.insert(layer.name.clone(), features);
         }
         layer_configs.insert(layer.name.clone(), layer);
+
+        // Derived label points layer (centroid of polygons)
+        if layer.generate_label_points {
+            let label_name = format!("{}_labels", layer.name);
+            let label_features = reader
+                .get_derived_features_in_bounds(layer, DerivedGeomType::LabelPoint, &bounds)
+                .await?;
+            if !label_features.is_empty() {
+                features_by_layer.insert(label_name, label_features);
+            }
+        }
+
+        // Derived boundary lines layer (polygon outline as linestring)
+        if layer.generate_boundary_lines {
+            let boundary_name = format!("{}_boundary", layer.name);
+            let boundary_features = reader
+                .get_derived_features_in_bounds(layer, DerivedGeomType::BoundaryLine, &bounds)
+                .await?;
+            if !boundary_features.is_empty() {
+                features_by_layer.insert(boundary_name, boundary_features);
+            }
+        }
     }
 
     if features_by_layer.is_empty() {

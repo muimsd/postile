@@ -748,6 +748,8 @@ mod tests {
                 below_zoom: 10,
                 exclude: vec!["description".to_string(), "metadata".to_string()],
             }]),
+            generate_label_points: false,
+            generate_boundary_lines: false,
         };
 
         // At zoom 5 (below 10), properties should be excluded
@@ -790,6 +792,8 @@ mod tests {
                 below_zoom: 10,
                 exclude: vec!["description".to_string(), "metadata".to_string()],
             }]),
+            generate_label_points: false,
+            generate_boundary_lines: false,
         };
 
         let mut features_by_layer = HashMap::new();
