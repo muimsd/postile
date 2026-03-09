@@ -286,15 +286,12 @@ impl PostgisReader {
             query.push_str(&format!(" AND ({})", filter));
         }
 
-        let rows = client
-            .query(&query, &[])
-            .await
-            .with_context(|| {
-                format!(
-                    "Failed to query derived {:?} layer {}.{}",
-                    derived_type, schema, layer.table
-                )
-            })?;
+        let rows = client.query(&query, &[]).await.with_context(|| {
+            format!(
+                "Failed to query derived {:?} layer {}.{}",
+                derived_type, schema, layer.table
+            )
+        })?;
 
         let mut features = Vec::with_capacity(rows.len());
         for row in &rows {
@@ -433,12 +430,16 @@ impl PostgisReader {
                 Err(e) => {
                     attempt += 1;
                     if attempt >= max_retries {
-                        return Err(e.context(format!("Failed to connect after {} attempts", max_retries)));
+                        return Err(
+                            e.context(format!("Failed to connect after {} attempts", max_retries))
+                        );
                     }
                     let delay = std::time::Duration::from_secs(2u64.pow(attempt.min(5)));
                     tracing::warn!(
                         "PostGIS connection attempt {} failed: {}. Retrying in {:?}...",
-                        attempt, e, delay
+                        attempt,
+                        e,
+                        delay
                     );
                     tokio::time::sleep(delay).await;
                 }
@@ -462,7 +463,10 @@ impl PostgisReader {
             .get(0);
 
         if !table_exists {
-            issues.push(format!("Table \"{}\".\"{}\" does not exist", schema, layer.table));
+            issues.push(format!(
+                "Table \"{}\".\"{}\" does not exist",
+                schema, layer.table
+            ));
             return Ok(issues);
         }
 

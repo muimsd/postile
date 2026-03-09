@@ -110,12 +110,17 @@ mod tests {
     #[test]
     fn test_inspect_mbtiles_with_tiles() {
         let path = std::env::temp_dir()
-            .join(format!("tilefeed_inspect_test_{}.mbtiles", std::process::id()))
+            .join(format!(
+                "tilefeed_inspect_test_{}.mbtiles",
+                std::process::id()
+            ))
             .to_string_lossy()
             .to_string();
 
         let store = crate::mbtiles::MbtilesStore::create(&path).unwrap();
-        store.write_default_metadata("test", "A test tileset").unwrap();
+        store
+            .write_default_metadata("test", "A test tileset")
+            .unwrap();
         store.put_tile(0, 0, 0, b"tile_data_here").unwrap();
         store.put_tile(1, 0, 0, b"more_data").unwrap();
         drop(store);
@@ -130,7 +135,10 @@ mod tests {
     #[test]
     fn test_inspect_mbtiles_empty() {
         let path = std::env::temp_dir()
-            .join(format!("tilefeed_inspect_empty_{}.mbtiles", std::process::id()))
+            .join(format!(
+                "tilefeed_inspect_empty_{}.mbtiles",
+                std::process::id()
+            ))
             .to_string_lossy()
             .to_string();
 

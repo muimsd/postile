@@ -99,7 +99,7 @@ async fn run_listener(
         // Wait for the first notification
         let first = match rx.recv().await {
             Some(n) => n,
-            None => return Ok(()),  // channel closed, will trigger reconnect in outer loop
+            None => return Ok(()), // channel closed, will trigger reconnect in outer loop
         };
 
         let mut events = vec![first];
@@ -129,14 +129,8 @@ async fn run_listener(
         }
 
         if !parsed_events.is_empty() {
-            if let Err(e) = handle_batch_update(
-                config,
-                &reader,
-                stores,
-                publisher,
-                &parsed_events,
-            )
-            .await
+            if let Err(e) =
+                handle_batch_update(config, &reader, stores, publisher, &parsed_events).await
             {
                 error!("Failed to handle update batch: {}", e);
             }

@@ -93,8 +93,7 @@ async fn main() -> Result<()> {
 
             match cli.command {
                 Commands::Generate => {
-                    let reader =
-                        postgis::PostgisReader::connect(&app_config.database).await?;
+                    let reader = postgis::PostgisReader::connect(&app_config.database).await?;
                     generate_all_sources(&app_config, &reader).await?;
                     publish_after_generate(&app_config, publisher.as_deref()).await?;
                     info!("Tile generation complete");
@@ -103,16 +102,14 @@ async fn main() -> Result<()> {
                     watch_updates(app_config, publisher).await?;
                 }
                 Commands::Run => {
-                    let reader =
-                        postgis::PostgisReader::connect(&app_config.database).await?;
+                    let reader = postgis::PostgisReader::connect(&app_config.database).await?;
                     generate_all_sources(&app_config, &reader).await?;
                     publish_after_generate(&app_config, publisher.as_deref()).await?;
                     info!("Tile generation complete, starting incremental watcher...");
                     watch_updates(app_config, publisher).await?;
                 }
                 Commands::Serve => {
-                    let reader =
-                        postgis::PostgisReader::connect(&app_config.database).await?;
+                    let reader = postgis::PostgisReader::connect(&app_config.database).await?;
                     generate_all_sources(&app_config, &reader).await?;
                     publish_after_generate(&app_config, publisher.as_deref()).await?;
                     info!("Tile generation complete, starting server and watcher...");
@@ -206,10 +203,7 @@ async fn serve_and_watch(
 ) -> Result<()> {
     let stores = open_stores(&config)?;
 
-    info!(
-        "Starting server and watcher for {} source(s)",
-        stores.len()
-    );
+    info!("Starting server and watcher for {} source(s)", stores.len());
 
     let mut listener_task = tokio::spawn(start_listener(
         config.clone(),

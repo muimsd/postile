@@ -181,7 +181,9 @@ impl MbtilesStore {
 
     /// Get all metadata key-value pairs
     pub fn get_all_metadata(&self) -> Result<Vec<(String, String)>> {
-        let mut stmt = self.conn.prepare("SELECT name, value FROM metadata ORDER BY name")?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT name, value FROM metadata ORDER BY name")?;
         let rows = stmt.query_map([], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
         })?;
@@ -194,14 +196,16 @@ impl MbtilesStore {
 
     /// Count total tiles
     pub fn tile_count(&self) -> Result<u64> {
-        let count: i64 = self.conn.query_row("SELECT COUNT(*) FROM tiles", [], |row| row.get(0))?;
+        let count: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM tiles", [], |row| row.get(0))?;
         Ok(count as u64)
     }
 
     /// Count tiles per zoom level
     pub fn tile_count_by_zoom(&self) -> Result<Vec<(u8, u64)>> {
         let mut stmt = self.conn.prepare(
-            "SELECT zoom_level, COUNT(*) FROM tiles GROUP BY zoom_level ORDER BY zoom_level"
+            "SELECT zoom_level, COUNT(*) FROM tiles GROUP BY zoom_level ORDER BY zoom_level",
         )?;
         let rows = stmt.query_map([], |row| {
             Ok((row.get::<_, u8>(0)?, row.get::<_, i64>(1)? as u64))
@@ -742,7 +746,9 @@ mod tests {
 
         store.begin_transaction().unwrap();
         for i in 0..100u32 {
-            store.put_tile(5, i, 0, format!("tile_{}", i).as_bytes()).unwrap();
+            store
+                .put_tile(5, i, 0, format!("tile_{}", i).as_bytes())
+                .unwrap();
         }
         store.commit_transaction().unwrap();
 

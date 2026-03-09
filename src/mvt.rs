@@ -51,12 +51,13 @@ pub fn encode_tile_with_config(
 
         for feature in features {
             // Apply geometry simplification if configured
-            let geometry = if let Some(tolerance) = simplification_tolerance(layer_cfg, tile_coord.z) {
-                let simplified = simplify_geometry(&feature.geometry, tolerance);
-                encode_geometry(&simplified, tile_coord)?
-            } else {
-                encode_geometry(&feature.geometry, tile_coord)?
-            };
+            let geometry =
+                if let Some(tolerance) = simplification_tolerance(layer_cfg, tile_coord.z) {
+                    let simplified = simplify_geometry(&feature.geometry, tolerance);
+                    encode_geometry(&simplified, tile_coord)?
+                } else {
+                    encode_geometry(&feature.geometry, tile_coord)?
+                };
 
             let geom_type = detect_geom_type(&feature.geometry);
 
@@ -132,7 +133,7 @@ fn simplification_tolerance(layer_cfg: Option<&LayerConfig>, zoom: u8) -> Option
 }
 
 /// Compute the set of property names to exclude at the given zoom level
-fn compute_excluded_properties<'a>(layer_cfg: Option<&'a LayerConfig>, zoom: u8) -> HashSet<&'a str> {
+fn compute_excluded_properties(layer_cfg: Option<&LayerConfig>, zoom: u8) -> HashSet<&str> {
     let mut excluded = HashSet::new();
     if let Some(cfg) = layer_cfg {
         if let Some(rules) = &cfg.property_rules {
@@ -171,7 +172,7 @@ fn simplify_geometry(geometry: &JsonValue, tolerance: f64) -> JsonValue {
             if let Some(lines) = coords.as_array() {
                 let new_lines: Vec<JsonValue> = lines
                     .iter()
-                    .filter_map(|l| parse_linestring(l))
+                    .filter_map(parse_linestring)
                     .map(|ls| {
                         let simplified = ls.simplify(&tolerance);
                         simplified
@@ -180,7 +181,7 @@ fn simplify_geometry(geometry: &JsonValue, tolerance: f64) -> JsonValue {
                             .map(|c| serde_json::json!([c.x, c.y]))
                             .collect::<Vec<_>>()
                     })
-                    .map(|coords| JsonValue::Array(coords))
+                    .map(JsonValue::Array)
                     .collect();
                 serde_json::json!({"type": "MultiLineString", "coordinates": new_lines})
             } else {
@@ -200,7 +201,7 @@ fn simplify_geometry(geometry: &JsonValue, tolerance: f64) -> JsonValue {
             if let Some(polygons) = coords.as_array() {
                 let new_polys: Vec<JsonValue> = polygons
                     .iter()
-                    .filter_map(|p| parse_polygon(p))
+                    .filter_map(parse_polygon)
                     .map(|poly| {
                         let simplified = poly.simplify(&tolerance);
                         JsonValue::Array(polygon_to_json(&simplified))
@@ -241,10 +242,7 @@ fn parse_polygon(coords: &JsonValue) -> Option<Polygon<f64>> {
     }
 
     let exterior = parse_linestring(&rings[0])?;
-    let interiors: Vec<LineString<f64>> = rings[1..]
-        .iter()
-        .filter_map(|r| parse_linestring(r))
-        .collect();
+    let interiors: Vec<LineString<f64>> = rings[1..].iter().filter_map(parse_linestring).collect();
 
     Some(Polygon::new(exterior, interiors))
 }
@@ -772,7 +770,10 @@ mod tests {
             geometry: json!({"type": "Point", "coordinates": [0.0, 0.0]}),
             properties: json!({"name": "test", "description": "long text", "metadata": "extra"}),
             bounds: crate::postgis::Bounds {
-                min_lon: -1.0, min_lat: -1.0, max_lon: 1.0, max_lat: 1.0,
+                min_lon: -1.0,
+                min_lat: -1.0,
+                max_lon: 1.0,
+                max_lat: 1.0,
             },
             layer_name: "layer".to_string(),
         };
@@ -803,7 +804,8 @@ mod tests {
         layer_configs.insert("layer".to_string(), &cfg);
 
         // At zoom 5, description and metadata should be excluded
-        let result = encode_tile_with_config(&tile_coord, &features_by_layer, &layer_configs).unwrap();
+        let result =
+            encode_tile_with_config(&tile_coord, &features_by_layer, &layer_configs).unwrap();
         assert!(!result.is_empty());
         // Verify it's valid gzip
         assert_eq!(result[0], 0x1f);
@@ -818,7 +820,10 @@ mod tests {
             geometry: geom,
             properties: json!({}),
             bounds: crate::postgis::Bounds {
-                min_lon: -180.0, min_lat: -85.0, max_lon: 180.0, max_lat: 85.0,
+                min_lon: -180.0,
+                min_lat: -85.0,
+                max_lon: 180.0,
+                max_lat: 85.0,
             },
             layer_name: "test".to_string(),
         }
@@ -939,7 +944,10 @@ mod tests {
             geometry: json!({"type": "Point", "coordinates": [0.0, 0.0]}),
             properties: json!({"name": "a"}),
             bounds: crate::postgis::Bounds {
-                min_lon: -1.0, min_lat: -1.0, max_lon: 1.0, max_lat: 1.0,
+                min_lon: -1.0,
+                min_lat: -1.0,
+                max_lon: 1.0,
+                max_lat: 1.0,
             },
             layer_name: "layer_a".to_string(),
         };
@@ -948,7 +956,10 @@ mod tests {
             geometry: json!({"type": "Point", "coordinates": [1.0, 1.0]}),
             properties: json!({"type": "b"}),
             bounds: crate::postgis::Bounds {
-                min_lon: 0.0, min_lat: 0.0, max_lon: 2.0, max_lat: 2.0,
+                min_lon: 0.0,
+                min_lat: 0.0,
+                max_lon: 2.0,
+                max_lat: 2.0,
             },
             layer_name: "layer_b".to_string(),
         };

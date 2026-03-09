@@ -20,7 +20,7 @@ mbtiles_path = "./examples/serve-with-simplification/parks.mbtiles"
 min_zoom = 0
 max_zoom = 14
 
-# Polygons with geometry simplification and property filtering
+# Polygons with geometry simplification, property filtering, and derived layers
 [[sources.layers]]
 name = "parks"
 schema = "public"
@@ -31,6 +31,9 @@ srid = 4326
 properties = ["name", "type", "description", "area_sqm"]
 filter = "type != 'private'"
 simplify_tolerance = 0.00001
+# Generate centroid points for labels and boundary polylines
+generate_label_points = true
+generate_boundary_lines = true
 
 # Exclude heavy properties at low zooms
 [[sources.layers.property_rules]]

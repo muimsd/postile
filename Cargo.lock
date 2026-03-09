@@ -2205,6 +2205,7 @@ dependencies = [
  "sha2",
  "tokio",
  "tokio-postgres",
+ "tower",
  "tower-http",
  "tracing",
  "tracing-subscriber",

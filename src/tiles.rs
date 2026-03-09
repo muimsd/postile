@@ -269,7 +269,11 @@ mod tests {
     #[test]
     fn test_tile_bounds_high_zoom() {
         // At zoom 20, tiles are very small
-        let tile = TileCoord { z: 20, x: 524288, y: 524288 };
+        let tile = TileCoord {
+            z: 20,
+            x: 524288,
+            y: 524288,
+        };
         let bounds = tile.bounds();
         let width = bounds.max_lon - bounds.min_lon;
         let height = bounds.max_lat - bounds.min_lat;
@@ -360,7 +364,11 @@ mod tests {
 
     #[test]
     fn test_world_to_tile_coords_higher_zoom() {
-        let tile = TileCoord { z: 10, x: 512, y: 340 };
+        let tile = TileCoord {
+            z: 10,
+            x: 512,
+            y: 340,
+        };
         let bounds = tile.bounds();
         let extent = 4096u32;
 

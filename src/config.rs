@@ -144,7 +144,11 @@ impl LayerConfig {
         if let Some(cols) = &self.geometry_columns {
             cols.clone()
         } else {
-            vec![self.geometry_column.as_deref().unwrap_or("geom").to_string()]
+            vec![self
+                .geometry_column
+                .as_deref()
+                .unwrap_or("geom")
+                .to_string()]
         }
     }
 }
@@ -590,8 +594,12 @@ mod tests {
     #[test]
     fn test_find_parent_layer_for_derived_not_found() {
         let source = sample_source("src", &["parks"]);
-        assert!(source.find_parent_layer_for_derived("parks_labels").is_none());
-        assert!(source.find_parent_layer_for_derived("nonexistent_labels").is_none());
+        assert!(source
+            .find_parent_layer_for_derived("parks_labels")
+            .is_none());
+        assert!(source
+            .find_parent_layer_for_derived("nonexistent_labels")
+            .is_none());
     }
 
     // --- SourceConfig::all_layer_names ---
@@ -613,7 +621,13 @@ mod tests {
         let names = source.all_layer_names();
         assert_eq!(
             names,
-            vec!["parks", "parks_labels", "parks_boundary", "water", "water_labels"]
+            vec![
+                "parks",
+                "parks_labels",
+                "parks_boundary",
+                "water",
+                "water_labels"
+            ]
         );
     }
 
@@ -646,7 +660,10 @@ mod tests {
         let mut layer = sample_layer("test");
         layer.geometry_columns = Some(vec!["geom".to_string(), "geom_simplified".to_string()]);
         let cols = layer.geometry_columns();
-        assert_eq!(cols, vec!["geom".to_string(), "geom_simplified".to_string()]);
+        assert_eq!(
+            cols,
+            vec!["geom".to_string(), "geom_simplified".to_string()]
+        );
     }
 
     // --- PublishBackend ---
@@ -667,5 +684,65 @@ mod tests {
         // find_layer only matches actual layer names, not derived
         assert!(source.find_layer("parks_labels").is_none());
         assert!(source.find_layer("parks").is_some());
+    }
+
+    // --- Example config loading tests ---
+
+    #[test]
+    fn test_load_local_parks_config() {
+        let cfg = load_config("examples/local-parks/config").unwrap();
+        assert_eq!(cfg.sources.len(), 1);
+        assert_eq!(cfg.sources[0].name, "parks");
+        assert_eq!(cfg.sources[0].layers.len(), 2);
+        assert_eq!(cfg.sources[0].layers[0].name, "parks");
+        assert_eq!(cfg.sources[0].layers[1].name, "trails");
+        assert!(matches!(
+            cfg.sources[0].generation_backend,
+            GenerationBackend::Tippecanoe
+        ));
+        assert!(matches!(cfg.publish.backend, PublishBackend::Local));
+    }
+
+    #[test]
+    fn test_load_serve_simplification_config() {
+        let cfg = load_config("examples/serve-with-simplification/config").unwrap();
+        assert_eq!(cfg.sources[0].layers[0].name, "parks");
+        assert_eq!(
+            cfg.sources[0].layers[0].filter,
+            Some("type != 'private'".to_string())
+        );
+        assert!(cfg.sources[0].layers[0].simplify_tolerance.is_some());
+        assert!(cfg.sources[0].layers[0].property_rules.is_some());
+        assert!(cfg.sources[0].layers[0].generate_label_points);
+        assert!(cfg.sources[0].layers[0].generate_boundary_lines);
+        assert_eq!(cfg.serve.port, Some(3000));
+        assert_eq!(
+            cfg.serve.cors_origins,
+            Some(vec!["http://localhost:8080".to_string()])
+        );
+    }
+
+    #[test]
+    fn test_load_ogr_fdw_config() {
+        let cfg = load_config("examples/ogr-fdw/config").unwrap();
+        assert_eq!(cfg.sources[0].name, "buildings");
+        assert_eq!(
+            cfg.sources[0].layers[0].id_column,
+            Some("ogc_fid".to_string())
+        );
+        assert!(cfg.sources[0].tippecanoe.drop_densest_as_needed == Some(true));
+        assert!(cfg.sources[0].tippecanoe.no_tile_size_limit == Some(true));
+    }
+
+    #[test]
+    fn test_load_native_generation_config() {
+        let cfg = load_config("examples/native-generation/config").unwrap();
+        assert_eq!(cfg.sources[0].name, "parks");
+        assert!(matches!(
+            cfg.sources[0].generation_backend,
+            GenerationBackend::Native
+        ));
+        assert_eq!(cfg.sources[0].max_zoom, 8);
+        assert!(cfg.sources[0].layers[0].generate_label_points);
     }
 }

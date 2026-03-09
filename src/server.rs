@@ -59,10 +59,8 @@ pub async fn start_server(
 fn build_cors_layer(config: &ServeConfig) -> CorsLayer {
     match &config.cors_origins {
         Some(origins) if !origins.is_empty() => {
-            let origins: Vec<header::HeaderValue> = origins
-                .iter()
-                .filter_map(|o| o.parse().ok())
-                .collect();
+            let origins: Vec<header::HeaderValue> =
+                origins.iter().filter_map(|o| o.parse().ok()).collect();
             CorsLayer::new()
                 .allow_origin(origins)
                 .allow_methods([axum::http::Method::GET])
@@ -89,7 +87,9 @@ async fn serve_tile(
         let store = store.lock().await;
         match store.get_tile(z, x, y) {
             Ok(data) => data,
-            Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to read tile").into_response(),
+            Err(_) => {
+                return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to read tile").into_response()
+            }
         }
     };
 
@@ -105,10 +105,7 @@ async fn serve_tile(
             if let Some(if_none_match) = headers.get(header::IF_NONE_MATCH) {
                 if let Ok(val) = if_none_match.to_str() {
                     if val == etag || val == "*" {
-                        return (
-                            StatusCode::NOT_MODIFIED,
-                            [(header::ETAG, etag)],
-                        ).into_response();
+                        return (StatusCode::NOT_MODIFIED, [(header::ETAG, etag)]).into_response();
                     }
                 }
             }
@@ -121,15 +118,13 @@ async fn serve_tile(
                     (header::CACHE_CONTROL, "public, max-age=300".to_string()),
                 ],
                 data,
-            ).into_response()
+            )
+                .into_response()
         }
     }
 }
 
-async fn serve_tilejson(
-    State(state): State<AppState>,
-    Path(source): Path<String>,
-) -> Response {
+async fn serve_tilejson(State(state): State<AppState>, Path(source): Path<String>) -> Response {
     let source_config = match state.config.sources.iter().find(|s| s.name == source) {
         Some(s) => s,
         None => return (StatusCode::NOT_FOUND, "Source not found").into_response(),
@@ -140,9 +135,15 @@ async fn serve_tilejson(
 
     let mut layers: Vec<serde_json::Value> = Vec::new();
     for l in &source_config.layers {
-        let fields = l.properties.as_ref().map(|p| {
-            p.iter().map(|k| (k.clone(), "".to_string())).collect::<HashMap<String, String>>()
-        }).unwrap_or_default();
+        let fields = l
+            .properties
+            .as_ref()
+            .map(|p| {
+                p.iter()
+                    .map(|k| (k.clone(), "".to_string()))
+                    .collect::<HashMap<String, String>>()
+            })
+            .unwrap_or_default();
 
         layers.push(serde_json::json!({
             "id": l.name,
@@ -176,7 +177,8 @@ async fn serve_tilejson(
     (
         [(header::CONTENT_TYPE, "application/json")],
         serde_json::to_string_pretty(&tilejson).unwrap_or_default(),
-    ).into_response()
+    )
+        .into_response()
 }
 
 async fn health_check() -> &'static str {
@@ -238,7 +240,11 @@ mod tests {
     fn make_test_store() -> (String, MbtilesStore) {
         let id = SERVER_TEST_COUNTER.fetch_add(1, Ordering::SeqCst);
         let path = std::env::temp_dir()
-            .join(format!("tilefeed_server_test_{}_{}.mbtiles", std::process::id(), id))
+            .join(format!(
+                "tilefeed_server_test_{}_{}.mbtiles",
+                std::process::id(),
+                id
+            ))
             .to_string_lossy()
             .to_string();
         let store = MbtilesStore::create(&path).unwrap();
@@ -325,8 +331,12 @@ mod tests {
 
         let response = send_request(
             app,
-            Request::builder().uri("/health").body(Body::empty()).unwrap(),
-        ).await;
+            Request::builder()
+                .uri("/health")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
 
         assert_eq!(response.status(), StatusCode::OK);
     }
@@ -342,7 +352,8 @@ mod tests {
                 .uri("/nonexistent/0/0/0.pbf")
                 .body(Body::empty())
                 .unwrap(),
-        ).await;
+        )
+        .await;
 
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
@@ -362,7 +373,8 @@ mod tests {
                 .uri("/test_source/0/0/0.pbf")
                 .body(Body::empty())
                 .unwrap(),
-        ).await;
+        )
+        .await;
 
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(
@@ -390,7 +402,8 @@ mod tests {
                 .uri("/test_source/5/10/10.pbf")
                 .body(Body::empty())
                 .unwrap(),
-        ).await;
+        )
+        .await;
 
         assert_eq!(response.status(), StatusCode::NO_CONTENT);
 
@@ -412,8 +425,15 @@ mod tests {
                 .uri("/test_source/0/0/0.pbf")
                 .body(Body::empty())
                 .unwrap(),
-        ).await;
-        let etag = response.headers().get("etag").unwrap().to_str().unwrap().to_string();
+        )
+        .await;
+        let etag = response
+            .headers()
+            .get("etag")
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string();
 
         // Second request with If-None-Match
         let app2 = make_app(config, stores);
@@ -424,7 +444,8 @@ mod tests {
                 .header("if-none-match", &etag)
                 .body(Body::empty())
                 .unwrap(),
-        ).await;
+        )
+        .await;
 
         assert_eq!(response.status(), StatusCode::NOT_MODIFIED);
 
@@ -442,7 +463,8 @@ mod tests {
                 .uri("/test_source.json")
                 .body(Body::empty())
                 .unwrap(),
-        ).await;
+        )
+        .await;
 
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(
@@ -450,7 +472,9 @@ mod tests {
             "application/json"
         );
 
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
 
         assert_eq!(json["tilejson"], "3.0.0");
@@ -476,7 +500,8 @@ mod tests {
                 .uri("/nonexistent.json")
                 .body(Body::empty())
                 .unwrap(),
-        ).await;
+        )
+        .await;
 
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }

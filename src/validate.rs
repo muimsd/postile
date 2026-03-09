@@ -19,13 +19,17 @@ pub async fn validate_config(config: &AppConfig) -> Result<bool> {
         // Check MBTiles path is writable
         if let Some(parent) = std::path::Path::new(&source.mbtiles_path).parent() {
             if !parent.exists() {
-                println!("  WARNING: MBTiles parent directory does not exist: {}", parent.display());
+                println!(
+                    "  WARNING: MBTiles parent directory does not exist: {}",
+                    parent.display()
+                );
                 all_valid = false;
             }
         }
 
         for layer in &source.layers {
-            println!("  Layer: {} (table: {}.{})",
+            println!(
+                "  Layer: {} (table: {}.{})",
                 layer.name,
                 layer.schema.as_deref().unwrap_or("public"),
                 layer.table

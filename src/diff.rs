@@ -78,14 +78,23 @@ pub fn diff_mbtiles(path_a: &str, path_b: &str) -> Result<()> {
     println!("  Added tiles (only in B):   {}", only_in_b.len());
     println!("  Removed tiles (only in A): {}", only_in_a.len());
     println!("  Changed tiles (different): {}", changed_count);
-    println!("  Unchanged tiles:           {}", in_both.len() as u64 - changed_count);
+    println!(
+        "  Unchanged tiles:           {}",
+        in_both.len() as u64 - changed_count
+    );
 
     // Per-zoom breakdown if there are differences
     if !only_in_a.is_empty() || !only_in_b.is_empty() || changed_count > 0 {
         println!();
         println!("Changes by zoom level:");
-        println!("  {:>5}  {:>8}  {:>8}  {:>8}", "Zoom", "Added", "Removed", "Changed");
-        println!("  {:>5}  {:>8}  {:>8}  {:>8}", "-----", "--------", "--------", "--------");
+        println!(
+            "  {:>5}  {:>8}  {:>8}  {:>8}",
+            "Zoom", "Added", "Removed", "Changed"
+        );
+        println!(
+            "  {:>5}  {:>8}  {:>8}  {:>8}",
+            "-----", "--------", "--------", "--------"
+        );
 
         let max_zoom = coords_a
             .iter()
@@ -112,7 +121,10 @@ pub fn diff_mbtiles(path_a: &str, path_b: &str) -> Result<()> {
             }
 
             if added > 0 || removed > 0 || changed_at_zoom > 0 {
-                println!("  {:>5}  {:>8}  {:>8}  {:>8}", z, added, removed, changed_at_zoom);
+                println!(
+                    "  {:>5}  {:>8}  {:>8}  {:>8}",
+                    z, added, removed, changed_at_zoom
+                );
             }
         }
     }
@@ -132,7 +144,11 @@ mod tests {
 
     fn temp_path(suffix: &str) -> String {
         std::env::temp_dir()
-            .join(format!("tilefeed_diff_{}_{}.mbtiles", std::process::id(), suffix))
+            .join(format!(
+                "tilefeed_diff_{}_{}.mbtiles",
+                std::process::id(),
+                suffix
+            ))
             .to_string_lossy()
             .to_string()
     }
