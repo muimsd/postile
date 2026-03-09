@@ -10,6 +10,7 @@ A PostGIS vector tile pipeline for **MBTiles generation + incremental updates + 
 ```
 PostGIS --> GeoJSON --> Tippecanoe --> MBTiles --+--> Local copy
                                                 +--> S3 upload
+                                                +--> Mapbox Studio
 LISTEN/NOTIFY --> Debounce --> MVT encode ------+--> Custom cmd
 ```
 
@@ -35,6 +36,7 @@ Full generation exports PostGIS layers as GeoJSON, pipes them through Tippecanoe
 - Storage backends:
   - Local file copy
   - S3 upload via `aws s3 cp`
+  - Mapbox Studio upload via [Uploads API](https://docs.mapbox.com/api/maps/uploads/)
   - Custom command runner (for any storage workflow)
 
 ## Installation
@@ -43,7 +45,8 @@ Full generation exports PostGIS layers as GeoJSON, pipes them through Tippecanoe
 
 - PostgreSQL with [PostGIS](https://postgis.net/) extension
 - [Tippecanoe](https://github.com/felt/tippecanoe) for full generation
-- `aws` CLI only if using `publish.backend = "s3"`
+- `aws` CLI only if using `publish.backend = "s3"` or `publish.backend = "mapbox"`
+- Mapbox secret token with `uploads:write` scope only if using `publish.backend = "mapbox"`
 
 ### Homebrew (macOS / Linux)
 
@@ -213,7 +216,7 @@ debounce_ms = 200
 worker_concurrency = 8
 
 [publish]
-backend = "none" # none | local | s3 | command
+backend = "none" # none | local | s3 | mapbox | command
 publish_on_generate = true
 publish_on_update = true
 
@@ -331,6 +334,7 @@ Backend-specific publish fields:
 
 - `local`: set `publish.destination` to a file path.
 - `s3`: set `publish.destination = "s3://bucket/path/tiles.mbtiles"`.
+- `mapbox`: set `publish.mapbox_tileset_id = "username.tileset-name"` and `publish.mapbox_token` (secret token with `uploads:write` scope). Requires `aws` CLI.
 - `command`: set `publish.command`, and use env vars:
   - `TILEFEED_MBTILES_PATH`
   - `TILEFEED_PUBLISH_REASON`
