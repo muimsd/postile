@@ -1,12 +1,12 @@
 {
-    "version": "0.6.0",
+    "version": "0.6.1",
     "description": "PostGIS vector tile pipeline with incremental MBTiles updates via LISTEN/NOTIFY",
     "homepage": "https://github.com/muimsd/tilefeed",
     "license": "MIT",
     "architecture": {
         "64bit": {
-  "url": "https://github.com/muimsd/tilefeed/releases/download/v0.6.0/tilefeed-x86_64-pc-windows-msvc.zip",
-  "hash": "deb4f90afce610a1c3f22de966cc221f419e7fe0ccbb847751aee23ff9c643aa"
+  "url": "https://github.com/muimsd/tilefeed/releases/download/v0.6.1/tilefeed-x86_64-pc-windows-msvc.zip",
+  "hash": "b636d8c870ec1f71d14327d7dd1b584c72821b70f650f63df885bc4715104f36"
         }
     },
     "bin": "tilefeed.exe",
